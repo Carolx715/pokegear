@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import HoennMap from "~/maps/HoennMap.png";
 
 // Define the type for map markers/points of interest
 interface MapMarker {
@@ -19,16 +20,62 @@ const sampleMarkers: MapMarker[] = [
 
 export default function CustomMap() {
   // State for position, zoom and selected marker
+  const MAP_WIDTH = 800;
+  const MAP_HEIGHT = 600;
+
+  const mapContainerRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+  const [minZoom, setMinZoom] = useState(1);
+  const [displayX, setDisplayX] = useState(0.0);
+  const [displayY, setDisplayY] = useState(0.0);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null);
   
-  const mapContainerRef = useRef<HTMLDivElement>(null);
+  // Calculate min zoom level based on container size
+  useEffect(() => {
+    const updateContainerSize = () => {
+      if (mapContainerRef.current) {
+        const { clientWidth, clientHeight } = mapContainerRef.current;
+        setContainerSize({ width: clientWidth, height: clientHeight });
+        
+        // Calculate zoom level that ensures map fills the container
+        const widthRatio = clientWidth / MAP_WIDTH;
+        const heightRatio = clientHeight / MAP_HEIGHT;
+        const calculatedMinZoom = Math.min(widthRatio, heightRatio);
+        
+        setMinZoom(calculatedMinZoom);
+        
+        // If current zoom is less than new minZoom, update it
+        if (zoom < calculatedMinZoom) {
+          setZoom(calculatedMinZoom);
+          
+          // Center the map
+          centerMap(calculatedMinZoom);
+        }
+      }
+    };
+
+    // Center the map in the container
+    const centerMap = (currentZoom = zoom) => {
+      const centerX = (containerSize.width - MAP_WIDTH * currentZoom) / 2;
+      const centerY = (containerSize.height - MAP_HEIGHT * currentZoom) / 2;
+      setPosition({ x: centerX, y: centerY });
+    };
+  
+    // Initial calculation
+    updateContainerSize();
+    
+    // Update on resize
+    window.addEventListener('resize', updateContainerSize);
+    return () => window.removeEventListener('resize', updateContainerSize);
+  }, [zoom]);
   
   // Handle mouse down for dragging
-  const handleMouseDown = (e: { clientX: number; clientY: number; }) => {
+  const handleMouseDown = (e: { preventDefault: () => void; clientX: number; clientY: number; }) => {
+    e.preventDefault();
     setIsDragging(true);
     setDragStart({ 
       x: e.clientX - position.x, 
@@ -39,11 +86,14 @@ export default function CustomMap() {
   // Handle mouse move for dragging
   const handleMouseMove = (e: { clientX: number; clientY: number; }) => {
     if (!isDragging) return;
+
+    // these should be in the range of 0 to MAP_WIDTH and MAP_HEIGHT
+    let x = Math.min(0, Math.max(-800, e.clientX - dragStart.x));
+    let y = Math.min(0, Math.max(-600, e.clientY - dragStart.y));
+    setDisplayX(x);
+    setDisplayY(y);
     
-    setPosition({
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y
-    });
+    setPosition({x, y});
   };
   
   // Handle mouse up to stop dragging
@@ -63,14 +113,14 @@ export default function CustomMap() {
     const mouseY = e.clientY - rect.top - position.y;
     
     // Calculate new zoom level
-    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-    const newZoom = Math.max(0.5, Math.min(5, zoom * zoomFactor));
+    const zoomFactor = e.deltaY > 0 ? 0.98 : 1.02;
+    const newZoom = Math.max(minZoom, Math.min(5, zoom * zoomFactor));
+
+    let x = Math.min(0, Math.max(-800, position.x - mouseX * (zoomFactor - 1)));
+    let y = Math.min(0, Math.max(-600, position.y - mouseY * (zoomFactor - 1))); // TODO subtract viewport w and h
     
     // Adjust position to zoom toward cursor position
-    const newPosition = {
-      x: position.x - mouseX * (zoomFactor - 1),
-      y: position.y - mouseY * (zoomFactor - 1)
-    };
+    const newPosition = { x, y };
     
     setZoom(newZoom);
     setPosition(newPosition);
@@ -108,7 +158,7 @@ export default function CustomMap() {
         mapContainer.removeEventListener('mouseleave', handleMouseLeave);
       }
     };
-  }, [isDragging, dragStart, position, zoom]);
+  }, [isDragging, dragStart, position, zoom, minZoom]);
   
   return (
     <div className="flex flex-col items-center">
@@ -121,7 +171,7 @@ export default function CustomMap() {
       
       <div 
         ref={mapContainerRef}
-        className="relative overflow-hidden border-2 border-gray-300 rounded-lg w-full h-96 cursor-move bg-gray-100"
+        className="relative overflow-hidden border-2 border-gray-300 rounded-lg w-full max-w-9/10 h-96 cursor-move bg-gray-100"
         onMouseDown={handleMouseDown}
       >
         {/* Map container with transformation */}
@@ -136,7 +186,7 @@ export default function CustomMap() {
           {/* Map image */}
           <div className="relative">
             <img 
-              src="/api/placeholder/800/600" 
+              src={HoennMap}
               alt="Map background" 
               className="select-none"
             />
@@ -172,7 +222,7 @@ export default function CustomMap() {
               className="absolute top-1 right-2 text-gray-500 hover:text-gray-700"
               onClick={closeInfoWindow}
             >
-              ×
+              x
             </button>
             <h3 className="font-bold mb-2">{selectedMarker.title}</h3>
             <p>{selectedMarker.description}</p>
@@ -202,6 +252,11 @@ export default function CustomMap() {
         >
           Reset View
         </button>
+      </div>
+      <div>
+        <p>x: {position.x} </p>
+        <p>y: {position.y} </p>
+
       </div>
     </div>
   );
